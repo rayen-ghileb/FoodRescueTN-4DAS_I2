@@ -1,13 +1,21 @@
+# Optional: use this PostgreSQL + PostGIS container instead of an existing local database.
+# Port 5433 avoids conflicting with PostgreSQL already running on Windows port 5432.
 services:
   postgres:
-    image: 'postgres:latest'
+    image: postgis/postgis:17-3.7
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      POSTGRES_DB: matching_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD before starting Docker Compose}
     ports:
-      - '5432'
-  redis:
-    image: 'redis:latest'
-    ports:
-      - '6379'
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - matching_postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d matching_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  matching_postgis_data:
