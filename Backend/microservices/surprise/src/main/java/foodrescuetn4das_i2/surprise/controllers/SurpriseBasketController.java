@@ -1,0 +1,16 @@
+package foodrescuetn4das_i2.surprise.controllers;
+
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/surprise-baskets")
+public class SurpriseBasketController {
+
+    @GetMapping(value = "/hello", produces = MediaType.TEXT_PLAIN_VALUE)
+    public String hello() {
+        return "hello im surprise busket";
+    }
+}
