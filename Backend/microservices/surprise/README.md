@@ -1,0 +1,155 @@
+# Surprise Basket Marketplace Service
+
+FoodRescue TN service for discounted surplus-food baskets. This stage provides five JPA entities, PostgreSQL migrations, repositories, and a working Hello endpoint. PaymentSimulation stores mock-payment data only; order processing and payment execution are outside this stage.
+
+The existing repository uses `Backend/microservices/surprise`, package `foodrescuetn4das_i2.surprise`, Java 17, Spring Boot 4.1.2, and Maven. These conventions are preserved. Dependencies are limited to Spring MVC, Spring Data JPA/Hibernate, PostgreSQL, Flyway, springdoc-openapi/Swagger UI, and JUnit/Spring Boot Test. There is no dependency on Redis, RabbitMQ, Keycloak, Eureka, or Config Server. No shared infrastructure exists in this checkout. The existing application name `Surprise` and `/api/surprise-baskets` prefix remain available for future integration.
+
+## Start PostgreSQL
+
+Run all commands from `Backend/microservices/surprise`. Install Java 17+ and Maven, and start Docker Desktop first.
+
+```sh
+docker compose up -d --wait postgres
+```
+
+This starts only this service's PostgreSQL 18.4, with its own Compose project `foodrescue-surprise`, network, volume, and database `surprise_basket_db`. It binds to `127.0.0.1:5546`, leaving an existing PostgreSQL on port 5432 alone. No fixed container name is used.
+
+Development defaults:
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `DB_URL` | `jdbc:postgresql://127.0.0.1:5546/surprise_basket_db` | Spring JDBC URL |
+| `DB_USERNAME` | `surprise_basket` | Database user for Spring and Compose |
+| `DB_PASSWORD` | `surprise_local_dev` | Public local-development password |
+| `DB_PORT` | `5546` | Compose host port |
+| `SERVER_PORT` | `8086` | HTTP port |
+| `TEST_DB_URL` | `jdbc:postgresql://127.0.0.1:5546/surprise_basket_test_db` | Integration-test database |
+
+The password above is only a development default. Set environment variables for real deployments. `.env.example` is a reference; `.env` is ignored by Git. Compose reads `.env`, but Spring Boot does not automatically read it. Export matching values in the terminal running Maven. For example, in PowerShell:
+
+```powershell
+$env:DB_USERNAME = "surprise_basket"
+$env:DB_PASSWORD = "your-local-password"
+```
+
+If port 5546 is occupied, set `DB_PORT` to a free port and change `DB_URL` and `TEST_DB_URL` to match. Existing initialized volumes retain their original credentials; environment changes do not reset database users.
+
+An existing or native PostgreSQL installation can also be used: create a dedicated `surprise_basket_db` owned by the configured database user and set `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` appropriately. The application does not start Docker automatically.
+
+## Run the service
+
+```sh
+mvn spring-boot:run
+```
+
+The existing Maven wrapper is also available: `./mvnw` on macOS/Linux or `.\mvnw.cmd` on Windows. To build an executable JAR without running database integration tests:
+
+```sh
+mvn clean package
+java -jar target/Surprise-0.0.1-SNAPSHOT.jar
+```
+
+PostgreSQL must be running. Flyway creates the schema on first startup and Hibernate validates the mappings on every startup.
+
+## Test with Swagger UI
+
+1. Start PostgreSQL and the application using the commands above.
+2. Open `http://localhost:8086/swagger-ui/index.html` in Chrome or another browser.
+3. Expand `surprise-basket-controller` if it is collapsed.
+4. Click the green `GET /api/surprise-baskets/hello` row.
+5. Click **Try it out**, then **Execute**. This request needs no parameters or login.
+6. Under **Server response**, confirm **Code: 200** and the exact response body `hello im surprise busket`.
+
+The OpenAPI JSON is available at `http://localhost:8086/v3/api-docs`. Swagger UI is provided by springdoc-openapi 3.2.0, compatible with this repository's Spring Boot 4.1.2.
+
+## Test Hello with curl
+
+```sh
+curl -i http://localhost:8086/api/surprise-baskets/hello
+```
+
+Use `curl.exe` in Windows PowerShell if `curl` is an alias. Expected: HTTP 200, `Content-Type: text/plain`, and the exact body below, without an added newline:
+
+```text
+hello im surprise busket
+```
+
+## Database model and verification
+
+- `surprise_baskets`: UUID ID, external `offer_id`, name, `NUMERIC(12,2)` price, status.
+- `basket_orders`: UUID ID, external `buyer_user_id`, quantity, `NUMERIC(12,2)` total price, status, required basket FK.
+- `pickup_codes`: UUID ID, unique code, expiry, nullable redemption time, required unique order FK.
+- `basket_descriptions`: UUID ID, category, description, optional allergen information, required basket FK.
+- `payment_simulations`: UUID ID, `NUMERIC(12,2)` amount in TND, status, nullable processing time, required unique order FK.
+
+A basket has many orders and description entries; an order has zero or one pickup code and zero or one payment simulation. Only `basket_id` and `order_id` have foreign keys, both inside this service's database. External UUIDs have no cross-service foreign keys. IDs are generated by JPA. Relationships are lazy, with no automatic cascading deletes. When saving relationships, set the owning side (`BasketOrder.surpriseBasket`, `BasketDescription.surpriseBasket`, `PickupCode.basketOrder` or `PaymentSimulation.basketOrder`); reload entities to refresh inverse collections.
+
+```sh
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d basket_orders"'
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d pickup_codes"'
+```
+
+Exactly five business tables are created. Flyway also creates its required `flyway_schema_history` metadata table; there are no other application tables.
+
+## Scope relative to the class diagram
+
+`BasketDescription` and `PaymentSimulation` are now mapped to the existing basket and order entities. A description always belongs to a basket, and a payment simulation always belongs to exactly one order. `processedAt` may be null while the simulation is pending. There is no payment provider, payment execution, or new REST endpoint; Swagger still exposes Hello only.
+
+The existing `SurpriseBasket` class represents the diagram's `BasketListing`. This addition keeps the original names and fields (`name`, `price`, `buyerUserId`, plain `code`, String statuses). Renaming these, introducing enums, adding `donorPartnerId`/`offerReservationId`, and hashing pickup codes have not been implemented as part of adding the missing entities. The diagram's minimum of one description per published basket remains a rule for future publishing logic; the persistence model permits an unpublished basket with no descriptions. Deletes do not cascade.
+
+V2 adds the two new tables without changing V1 or deleting existing data. It is applied automatically at the next application start.
+
+## Automated tests
+
+The Hello MVC test needs no database or Docker:
+
+```sh
+mvn test
+```
+
+For full PostgreSQL integration tests, start the database, then create a separate test database once:
+
+```sh
+docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" surprise_basket_test_db'
+mvn clean verify
+```
+
+`verify` runs six tests: the Hello MVC test plus five integration tests covering live HTTP and all migrated tables, basket/order/pickup persistence, description/payment persistence and optional relations, and rejection of duplicate pickup codes or payment simulations for one order. Integration tests use the `integration` profile, a separate test database, a random HTTP port, and transaction rollback. Do not point `TEST_DB_URL` at a database containing important data.
+
+## Folder structure
+
+```text
+Backend/microservices/surprise/
+|-- pom.xml
+|-- mvnw / mvnw.cmd / .mvn/wrapper/
+|-- compose.yaml
+|-- .env.example
+|-- README.md
+|-- VERIFICATION.md
+|-- src/main/java/foodrescuetn4das_i2/surprise/
+|   |-- SurpriseApplication.java
+|   |-- controllers/SurpriseBasketController.java
+|   |-- entity/{SurpriseBasket,BasketOrder,PickupCode,BasketDescription,PaymentSimulation}.java
+|   |-- repository/{SurpriseBasket,BasketOrder,PickupCode,BasketDescription,PaymentSimulation}Repository.java
+|   `-- service/.gitkeep
+|-- src/main/resources/
+|   |-- application.properties
+|   `-- db/migration/
+|       |-- V1__create_surprise_basket_tables.sql
+|       `-- V2__add_basket_descriptions_and_payment_simulations.sql
+|-- src/test/java/foodrescuetn4das_i2/surprise/
+|   |-- SurpriseApplicationTests.java
+|   `-- SurprisePersistenceIT.java
+`-- src/test/resources/application-integration.properties
+```
+
+The service directory is reserved for later business logic; Hello does not need a service class. The application entry point is unchanged. Other students' services are unchanged.
+
+Stop this database without deleting its data:
+
+```sh
+docker compose down
+```
+
+See `VERIFICATION.md` for the checks actually executed in the implementation environment.
