@@ -36,6 +36,9 @@ public class DonationMatch {
     @Column(nullable = false)
     private LocalDateTime matchedAt;
 
+    /** Straight-line distance to the selected association, if auto-matched. */
+    private Integer distanceM;
+
     @OneToOne(mappedBy = "donationMatch", fetch = FetchType.LAZY)
     private Pickup pickup;
 
@@ -56,6 +59,9 @@ public class DonationMatch {
 
     public LocalDateTime getMatchedAt() { return matchedAt; }
     public void setMatchedAt(LocalDateTime matchedAt) { this.matchedAt = matchedAt; }
+
+    public Integer getDistanceM() { return distanceM; }
+    public void setDistanceM(Integer distanceM) { this.distanceM = distanceM; }
 
     public Pickup getPickup() { return pickup; }
     public void setPickup(Pickup pickup) { this.pickup = pickup; }
